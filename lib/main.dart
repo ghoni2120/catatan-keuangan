@@ -1,10 +1,11 @@
+import 'providers/auth_provider.dart';
+import 'screens/auth_gate.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'providers/finance_provider.dart';
 import 'providers/theme_provider.dart';
-import 'screens/main_navigation_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,6 +27,7 @@ class CatatanKeuanganApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
+        ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => FinanceProvider()),
       ],
@@ -87,7 +89,7 @@ class CatatanKeuanganApp extends StatelessWidget {
             themeMode: themeProvider.themeMode,
             theme: lightTheme,
             darkTheme: darkTheme,
-            home: const MainNavigationScreen(),
+            home: const AuthGate(),
           );
         },
       ),

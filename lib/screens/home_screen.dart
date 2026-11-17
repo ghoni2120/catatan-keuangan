@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/category.dart';
+import '../providers/auth_provider.dart';
 import '../providers/finance_provider.dart';
 import '../providers/theme_provider.dart';
 import '../widgets/savings_item_card.dart';
@@ -147,6 +148,7 @@ class HomeScreen extends StatelessWidget {
     final theme = Theme.of(context);
     final provider = Provider.of<FinanceProvider>(context);
     final themeProvider = Provider.of<ThemeProvider>(context);
+    final auth = Provider.of<AuthProvider>(context);
 
     final recentTransactions = provider.transactions.take(5).toList();
     final topSavings = provider.savings.take(2).toList();
@@ -172,7 +174,7 @@ class HomeScreen extends StatelessWidget {
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 Text(
-                  'Halo, Selamat Datang! 👋',
+                  'Halo, ${auth.user?.name.split(' ').first ?? 'Selamat Datang'}! 👋',
                   style: TextStyle(fontSize: 11, color: theme.hintColor),
                 ),
               ],
@@ -222,6 +224,27 @@ class HomeScreen extends StatelessWidget {
                   context,
                   MaterialPageRoute(builder: (_) => const WalletsScreen()),
                 );
+              } else if (val == 'logout') {
+                showDialog(
+                  context: context,
+                  builder: (c) => AlertDialog(
+                    title: const Text('Keluar dari akun?'),
+                    content: const Text('Anda perlu login kembali untuk mengakses data Anda.'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(c),
+                        child: const Text('Batal'),
+                      ),
+                      FilledButton(
+                        onPressed: () {
+                          Navigator.pop(c);
+                          context.read<AuthProvider>().logout();
+                        },
+                        child: const Text('Keluar'),
+                      ),
+                    ],
+                  ),
+                );
               }
             },
             itemBuilder: (ctx) => [
@@ -242,6 +265,16 @@ class HomeScreen extends StatelessWidget {
                     Icon(Icons.restart_alt, size: 20, color: Colors.orange),
                     SizedBox(width: 10),
                     Text('Muat Ulang Data Contoh'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'logout',
+                child: Row(
+                  children: [
+                    Icon(Icons.logout, size: 20, color: Colors.red),
+                    SizedBox(width: 10),
+                    Text('Keluar'),
                   ],
                 ),
               ),

@@ -1,4 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Izin agar aplikasi bisa mengakses internet untuk komunikasi dengan backend -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <application
         android:label="catatan_keuangan"
         android:name="${applicationName}"
