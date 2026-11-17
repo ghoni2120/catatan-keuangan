@@ -42,7 +42,7 @@ class TransactionModel {
           : TransactionType.expense,
       categoryId: json['categoryId'] as String,
       walletId: json['walletId'] as String,
-      date: DateTime.parse(json['date'] as String),
+      date: DateTime.parse(json['date'] as String).toLocal(),
       note: json['note'] as String?,
     );
   }

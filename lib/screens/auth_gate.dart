@@ -23,6 +23,11 @@ class AuthGate extends StatelessWidget {
           onLogout: auth.logout,
         );
       case AuthStatus.unauthenticated:
+        // Jika sesi berakhir saat halaman lain sedang terbuka, tutup semuanya
+        // agar layar login benar-benar terlihat.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (context.mounted) Navigator.of(context).popUntil((route) => route.isFirst);
+        });
         return const AuthScreen();
       case AuthStatus.authenticated:
         return const MainNavigationScreen();

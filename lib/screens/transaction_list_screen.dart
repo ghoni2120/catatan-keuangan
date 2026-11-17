@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/category.dart';
 import '../models/transaction.dart';
 import '../providers/finance_provider.dart';
+import '../utils/api_action.dart';
 import '../utils/currency_formatter.dart';
 import '../widgets/transaction_item.dart';
 import 'add_edit_transaction_screen.dart';
@@ -274,9 +275,8 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                         onTap: () {
                           _showTransactionDetails(context, tx, wallet, provider);
                         },
-                        onDelete: () {
-                          provider.deleteTransaction(tx.id);
-                        },
+                        onDelete: () =>
+                            runApi(context, () => provider.deleteTransaction(tx.id)),
                       );
                     },
                   ),
@@ -364,7 +364,7 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                   child: OutlinedButton.icon(
                     onPressed: () {
                       Navigator.pop(ctx);
-                      provider.deleteTransaction(tx.id);
+                      runApi(context, () => provider.deleteTransaction(tx.id));
                     },
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.red,

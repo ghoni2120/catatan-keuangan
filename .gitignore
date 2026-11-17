@@ -60,3 +60,5 @@ lerna-debug.log*
 # --- OS generated files ---
 Thumbs.db
 ehthumbs.thor
+
+node_modules/

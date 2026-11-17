@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import '../models/wallet.dart';
 import '../providers/finance_provider.dart';
+import '../utils/api_action.dart';
 import '../utils/currency_formatter.dart';
 
 class WalletsScreen extends StatelessWidget {
@@ -170,7 +171,7 @@ class WalletsScreen extends StatelessWidget {
                 child: const Text('Batal'),
               ),
               FilledButton(
-                onPressed: () {
+                onPressed: () async {
                   final name = nameController.text.trim();
                   if (name.isEmpty) return;
                   final balance = double.tryParse(balanceController.text.trim()) ?? 0;
@@ -183,8 +184,8 @@ class WalletsScreen extends StatelessWidget {
                     icon: selectedIcon,
                     color: selectedColor,
                   );
-                  provider.addWallet(wallet);
-                  Navigator.pop(ctx);
+                  final ok = await runApi(context, () => provider.addWallet(wallet));
+                  if (ok && ctx.mounted) Navigator.pop(ctx);
                 },
                 child: const Text('Simpan'),
               ),
@@ -320,7 +321,7 @@ class WalletsScreen extends StatelessWidget {
                 child: const Text('Batal'),
               ),
               FilledButton(
-                onPressed: () {
+                onPressed: () async {
                   final amount = double.tryParse(amountController.text.trim()) ?? 0;
                   if (amount <= 0) return;
                   if (fromWallet != null && fromWallet.balance < amount) {
@@ -330,19 +331,25 @@ class WalletsScreen extends StatelessWidget {
                     return;
                   }
 
-                  provider.transferWalletBalance(
-                    fromWalletId: fromId,
-                    toWalletId: toId,
-                    amount: amount,
-                    note: noteController.text.trim().isEmpty
-                        ? null
-                        : noteController.text.trim(),
+                  final ok = await runApi(
+                    context,
+                    () => provider.transferWalletBalance(
+                      fromWalletId: fromId,
+                      toWalletId: toId,
+                      amount: amount,
+                      note: noteController.text.trim().isEmpty
+                          ? null
+                          : noteController.text.trim(),
+                    ),
                   );
-                  Navigator.pop(ctx);
+                  if (!ok) return;
+                  if (ctx.mounted) Navigator.pop(ctx);
 
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Transfer saldo berhasil dilakukan!')),
-                  );
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Transfer saldo berhasil dilakukan!')),
+                    );
+                  }
                 },
                 child: const Text('Transfer Sekarang'),
               ),

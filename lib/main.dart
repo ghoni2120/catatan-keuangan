@@ -1,11 +1,11 @@
-import 'providers/auth_provider.dart';
-import 'screens/auth_gate.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import 'providers/auth_provider.dart';
 import 'providers/finance_provider.dart';
 import 'providers/theme_provider.dart';
+import 'screens/auth_gate.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,7 +29,14 @@ class CatatanKeuanganApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
-        ChangeNotifierProvider(create: (_) => FinanceProvider()),
+        // Data keuangan mengikuti status login: login -> dimuat, logout -> dikosongkan
+        ChangeNotifierProxyProvider<AuthProvider, FinanceProvider>(
+          create: (_) => FinanceProvider(),
+          update: (_, auth, finance) {
+            finance!.onAuthChanged(auth.user?.id);
+            return finance;
+          },
+        ),
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, child) {

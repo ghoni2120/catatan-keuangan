@@ -17,5 +17,5 @@ class AppConfig {
     return 'http://localhost:3000/api/v1';
   }
 
-  static const Duration requestTimeout = Duration(seconds: 20);
+  static const Duration requestTimeout = Duration(seconds: 12);
 }

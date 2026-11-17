@@ -32,7 +32,7 @@ class SavingsLog {
     return SavingsLog(
       id: json['id'] as String,
       amount: (json['amount'] as num).toDouble(),
-      date: DateTime.parse(json['date'] as String),
+      date: DateTime.parse(json['date'] as String).toLocal(),
       type: json['type'] == 'withdraw'
           ? SavingsLogType.withdraw
           : SavingsLogType.deposit,
@@ -101,9 +101,9 @@ class SavingsGoal {
       targetAmount: (json['targetAmount'] as num).toDouble(),
       currentAmount: (json['currentAmount'] as num?)?.toDouble() ?? 0.0,
       targetDate: json['targetDate'] != null
-          ? DateTime.parse(json['targetDate'] as String)
+          ? DateTime.parse(json['targetDate'] as String).toLocal()
           : null,
-      createdAt: DateTime.parse(json['createdAt'] as String),
+      createdAt: DateTime.parse(json['createdAt'] as String).toLocal(),
       icon: IconData(
         json['iconCodePoint'] as int,
         fontFamily: json['iconFontFamily'] as String? ?? 'MaterialIcons',

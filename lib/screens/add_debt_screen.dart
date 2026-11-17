@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import '../models/debt.dart';
 import '../providers/finance_provider.dart';
+import '../utils/api_action.dart';
 import '../utils/date_formatter.dart';
 
 class AddDebtScreen extends StatefulWidget {
@@ -56,7 +57,7 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
     }
   }
 
-  void _saveDebt() {
+  Future<void> _saveDebt() async {
     if (!_formKey.currentState!.validate()) return;
 
     final amount = double.tryParse(_amountController.text.trim()) ?? 0;
@@ -81,8 +82,8 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
       notes: _noteController.text.trim().isEmpty ? null : _noteController.text.trim(),
     );
 
-    provider.addDebt(newDebt);
-    Navigator.pop(context);
+    final ok = await runApi(context, () => provider.addDebt(newDebt));
+    if (ok && mounted) Navigator.pop(context);
   }
 
   @override

@@ -5,6 +5,7 @@ import '../models/category.dart';
 import '../providers/auth_provider.dart';
 import '../providers/finance_provider.dart';
 import '../providers/theme_provider.dart';
+import '../utils/api_action.dart';
 import '../widgets/savings_item_card.dart';
 import '../widgets/summary_card.dart';
 import '../widgets/transaction_item.dart';
@@ -194,32 +195,7 @@ class HomeScreen extends StatelessWidget {
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
             onSelected: (val) {
-              if (val == 'reset') {
-                showDialog(
-                  context: context,
-                  builder: (c) => AlertDialog(
-                    title: const Text('Reset Data Sample?'),
-                    content: const Text(
-                        'Semua data akan dikembalikan ke data awal contoh. Cocok untuk demo aplikasi.'),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(c),
-                        child: const Text('Batal'),
-                      ),
-                      FilledButton(
-                        onPressed: () {
-                          provider.resetAllData();
-                          Navigator.pop(c);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Data berhasil di-reset')),
-                          );
-                        },
-                        child: const Text('Reset Data'),
-                      ),
-                    ],
-                  ),
-                );
-              } else if (val == 'wallets') {
+              if (val == 'wallets') {
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const WalletsScreen()),
@@ -255,16 +231,6 @@ class HomeScreen extends StatelessWidget {
                     Icon(Icons.account_balance_wallet_outlined, size: 20),
                     SizedBox(width: 10),
                     Text('Kelola Dompet'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'reset',
-                child: Row(
-                  children: [
-                    Icon(Icons.restart_alt, size: 20, color: Colors.orange),
-                    SizedBox(width: 10),
-                    Text('Muat Ulang Data Contoh'),
                   ],
                 ),
               ),
@@ -503,7 +469,8 @@ class HomeScreen extends StatelessWidget {
                   transaction: tx,
                   wallet: wallet,
                   onTap: () => onNavigateTab(1),
-                  onDelete: () => provider.deleteTransaction(tx.id),
+                  onDelete: () =>
+                      runApi(context, () => provider.deleteTransaction(tx.id)),
                 );
               }),
 

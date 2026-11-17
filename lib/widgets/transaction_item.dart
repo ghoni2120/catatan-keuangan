@@ -9,7 +9,7 @@ class TransactionItem extends StatelessWidget {
   final TransactionModel transaction;
   final Wallet? wallet;
   final VoidCallback? onTap;
-  final VoidCallback? onDelete;
+  final Future<bool> Function()? onDelete;
 
   const TransactionItem({
     super.key,
@@ -64,8 +64,8 @@ class TransactionItem extends StatelessWidget {
             ),
           );
           if (confirm == true) {
-            onDelete!();
-            return true;
+            // true = item hilang dari daftar; false = batal (mis. gagal di server)
+            return await onDelete!();
           }
         }
         return false;

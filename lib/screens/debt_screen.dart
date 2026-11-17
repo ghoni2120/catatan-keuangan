@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../models/debt.dart';
 import '../providers/finance_provider.dart';
+import '../utils/api_action.dart';
 import '../utils/currency_formatter.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/debt_item_card.dart';
@@ -146,29 +147,35 @@ class _DebtScreenState extends State<DebtScreen>
                 child: const Text('Batal'),
               ),
               FilledButton(
-                onPressed: () {
+                onPressed: () async {
                   final amount = double.tryParse(amountController.text.trim()) ?? 0;
                   if (amount <= 0) return;
 
-                  provider.payDebt(
-                    debtId: debt.id,
-                    amount: amount,
-                    walletId: selectedWalletId,
-                    notes: noteController.text.trim().isEmpty
-                        ? null
-                        : noteController.text.trim(),
-                  );
-                  Navigator.pop(ctx);
-
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        isDebt
-                            ? 'Berhasil mencatat pembayaran utang Rp ${CurrencyFormatter.formatWithoutSymbol(amount)}'
-                            : 'Berhasil mencatat pelunasan piutang Rp ${CurrencyFormatter.formatWithoutSymbol(amount)}',
-                      ),
+                  final ok = await runApi(
+                    context,
+                    () => provider.payDebt(
+                      debtId: debt.id,
+                      amount: amount,
+                      walletId: selectedWalletId,
+                      notes: noteController.text.trim().isEmpty
+                          ? null
+                          : noteController.text.trim(),
                     ),
                   );
+                  if (!ok) return;
+                  if (ctx.mounted) Navigator.pop(ctx);
+
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          isDebt
+                              ? 'Berhasil mencatat pembayaran utang Rp ${CurrencyFormatter.formatWithoutSymbol(amount)}'
+                              : 'Berhasil mencatat pelunasan piutang Rp ${CurrencyFormatter.formatWithoutSymbol(amount)}',
+                        ),
+                      ),
+                    );
+                  }
                 },
                 child: const Text('Simpan'),
               ),
@@ -227,8 +234,9 @@ class _DebtScreenState extends State<DebtScreen>
                       ),
                     );
                     if (confirm == true) {
-                      provider.deleteDebt(debt.id);
-                      Navigator.pop(ctx);
+                      if (!context.mounted) return;
+                      final ok = await runApi(context, () => provider.deleteDebt(debt.id));
+                      if (ok && ctx.mounted) Navigator.pop(ctx);
                     }
                   },
                 ),

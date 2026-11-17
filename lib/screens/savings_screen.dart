@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../models/savings_goal.dart';
 import '../providers/finance_provider.dart';
+import '../utils/api_action.dart';
 import '../utils/currency_formatter.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/savings_item_card.dart';
@@ -122,7 +123,7 @@ class SavingsScreen extends StatelessWidget {
                 child: const Text('Batal'),
               ),
               FilledButton(
-                onPressed: () {
+                onPressed: () async {
                   final amount = double.tryParse(amountController.text.trim()) ?? 0;
                   if (amount <= 0) return;
 
@@ -136,23 +137,29 @@ class SavingsScreen extends StatelessWidget {
                     return;
                   }
 
-                  provider.depositToSavings(
-                    goalId: goal.id,
-                    amount: amount,
-                    walletId: selectedWalletId,
-                    notes: noteController.text.trim().isEmpty
-                        ? null
-                        : noteController.text.trim(),
-                  );
-                  Navigator.pop(ctx);
-
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        'Berhasil menyetor ${CurrencyFormatter.format(amount)} ke "${goal.title}"',
-                      ),
+                  final ok = await runApi(
+                    context,
+                    () => provider.depositToSavings(
+                      goalId: goal.id,
+                      amount: amount,
+                      walletId: selectedWalletId,
+                      notes: noteController.text.trim().isEmpty
+                          ? null
+                          : noteController.text.trim(),
                     ),
                   );
+                  if (!ok) return;
+                  if (ctx.mounted) Navigator.pop(ctx);
+
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'Berhasil menyetor ${CurrencyFormatter.format(amount)} ke "${goal.title}"',
+                        ),
+                      ),
+                    );
+                  }
                 },
                 style: FilledButton.styleFrom(backgroundColor: goal.color),
                 child: const Text('Setor Sekarang'),
@@ -268,7 +275,7 @@ class SavingsScreen extends StatelessWidget {
                 child: const Text('Batal'),
               ),
               FilledButton(
-                onPressed: () {
+                onPressed: () async {
                   final amount = double.tryParse(amountController.text.trim()) ?? 0;
                   if (amount <= 0) return;
 
@@ -281,23 +288,29 @@ class SavingsScreen extends StatelessWidget {
                     return;
                   }
 
-                  provider.withdrawFromSavings(
-                    goalId: goal.id,
-                    amount: amount,
-                    walletId: selectedWalletId,
-                    notes: noteController.text.trim().isEmpty
-                        ? null
-                        : noteController.text.trim(),
-                  );
-                  Navigator.pop(ctx);
-
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        'Berhasil menarik ${CurrencyFormatter.format(amount)} dari "${goal.title}"',
-                      ),
+                  final ok = await runApi(
+                    context,
+                    () => provider.withdrawFromSavings(
+                      goalId: goal.id,
+                      amount: amount,
+                      walletId: selectedWalletId,
+                      notes: noteController.text.trim().isEmpty
+                          ? null
+                          : noteController.text.trim(),
                     ),
                   );
+                  if (!ok) return;
+                  if (ctx.mounted) Navigator.pop(ctx);
+
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'Berhasil menarik ${CurrencyFormatter.format(amount)} dari "${goal.title}"',
+                        ),
+                      ),
+                    );
+                  }
                 },
                 child: const Text('Tarik Dana'),
               ),
@@ -391,8 +404,9 @@ class SavingsScreen extends StatelessWidget {
                       ),
                     );
                     if (confirm == true) {
-                      provider.deleteSavingsGoal(goal.id);
-                      Navigator.pop(ctx);
+                      if (!context.mounted) return;
+                      final ok = await runApi(context, () => provider.deleteSavingsGoal(goal.id));
+                      if (ok && ctx.mounted) Navigator.pop(ctx);
                     }
                   },
                 ),

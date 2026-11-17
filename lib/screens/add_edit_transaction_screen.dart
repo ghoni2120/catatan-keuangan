@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../models/category.dart';
 import '../models/transaction.dart';
 import '../providers/finance_provider.dart';
+import '../utils/api_action.dart';
 import '../utils/currency_formatter.dart';
 import '../utils/date_formatter.dart';
 
@@ -114,7 +115,7 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
     }
   }
 
-  void _saveTransaction() {
+  Future<void> _saveTransaction() async {
     if (!_formKey.currentState!.validate()) return;
 
     final amount = double.tryParse(_amountController.text.trim()) ?? 0;
@@ -127,6 +128,7 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
 
     final provider = Provider.of<FinanceProvider>(context, listen: false);
 
+    final bool ok;
     if (widget.transactionToEdit != null) {
       final updated = widget.transactionToEdit!.copyWith(
         title: _titleController.text.trim(),
@@ -139,7 +141,10 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
             ? null
             : _noteController.text.trim(),
       );
-      provider.updateTransaction(widget.transactionToEdit!, updated);
+      ok = await runApi(
+        context,
+        () => provider.updateTransaction(widget.transactionToEdit!, updated),
+      );
     } else {
       final newTx = TransactionModel(
         id: const Uuid().v4(),
@@ -153,10 +158,10 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
             ? null
             : _noteController.text.trim(),
       );
-      provider.addTransaction(newTx);
+      ok = await runApi(context, () => provider.addTransaction(newTx));
     }
 
-    Navigator.pop(context);
+    if (ok && mounted) Navigator.pop(context);
   }
 
   @override

@@ -1,121 +1,217 @@
-import 'dart:convert';
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:uuid/uuid.dart';
 
 import '../models/category.dart';
 import '../models/debt.dart';
 import '../models/savings_goal.dart';
 import '../models/transaction.dart';
 import '../models/wallet.dart';
-import '../utils/dummy_data.dart';
+import '../services/api_client.dart';
+import '../services/api_exception.dart';
 
+/// Sumber data keuangan aplikasi. Seluruh data berasal dari backend.
+///
+/// Semua fungsi tulis (add/update/delete/pay/transfer/setor/tarik) memanggil API lebih dulu,
+/// lalu memperbarui data lokal dari JAWABAN SERVER (termasuk saldo dompet terbaru).
+/// Jika gagal, ApiException dilempar dan data lokal TIDAK berubah.
 class FinanceProvider extends ChangeNotifier {
-  static const String _keyWallets = 'finance_wallets_v1';
-  static const String _keyTransactions = 'finance_transactions_v1';
-  static const String _keyDebts = 'finance_debts_v1';
-  static const String _keySavings = 'finance_savings_v1';
-  static const String _keyInitialized = 'finance_has_initialized_v1';
+  FinanceProvider({ApiClient? api}) : _api = api ?? ApiClient.instance;
 
-  final Uuid _uuid = const Uuid();
+  final ApiClient _api;
+
+  String? _userId;
+  int _epoch = 0; // naik setiap kali data dikosongkan; membuang hasil pemuatan yang basi
 
   List<Wallet> _wallets = [];
   List<TransactionModel> _transactions = [];
   List<DebtItem> _debts = [];
   List<SavingsGoal> _savings = [];
-  bool _isLoading = true;
+
+  bool _hasLoaded = false;
+  String? _loadError;
 
   List<Wallet> get wallets => _wallets;
   List<TransactionModel> get transactions => _transactions;
   List<DebtItem> get debts => _debts;
   List<SavingsGoal> get savings => _savings;
-  bool get isLoading => _isLoading;
 
-  FinanceProvider() {
-    loadData();
+  /// true selama data awal belum siap (tampilkan spinner layar penuh).
+  bool get isLoading => !_hasLoaded && _loadError == null;
+
+  /// true setelah data pertama berhasil dimuat.
+  bool get hasLoaded => _hasLoaded;
+
+  /// Pesan error jika pemuatan awal gagal (tampilkan tombol "Coba Lagi").
+  String? get loadError => _loadError;
+
+  // ------------------------------------------------------------ siklus sesi
+
+  /// Dipanggil oleh ProxyProvider setiap status login berubah.
+  /// Login -> muat data; logout / ganti akun -> kosongkan data.
+  void onAuthChanged(String? userId) {
+    if (userId == _userId) return;
+    _userId = userId;
+    // Dijadwalkan di luar proses build (fungsi ini dipanggil dari ProxyProvider.update)
+    scheduleMicrotask(() {
+      _clearData();
+      if (userId != null) {
+        loadData();
+      } else {
+        notifyListeners();
+      }
+    });
   }
 
+  void _clearData() {
+    _epoch++;
+    _wallets = [];
+    _transactions = [];
+    _debts = [];
+    _savings = [];
+    _hasLoaded = false;
+    _loadError = null;
+  }
+
+  // ------------------------------------------------------------ memuat data
+
+  /// Memuat ulang seluruh data dari server. Tidak pernah melempar exception.
+  /// Jika gagal setelah data pernah dimuat, data lama dipertahankan.
   Future<void> loadData() async {
-    _isLoading = true;
-    notifyListeners();
+    if (_userId == null) return;
+    final epoch = _epoch;
 
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final hasInitialized = prefs.getBool(_keyInitialized) ?? false;
-
-      if (!hasInitialized) {
-        // First run: load initial sample data
-        _wallets = DummyData.sampleWallets;
-        _transactions = DummyData.sampleTransactions;
-        _debts = DummyData.sampleDebts;
-        _savings = DummyData.sampleSavings;
-        await _saveAll();
-        await prefs.setBool(_keyInitialized, true);
-      } else {
-        // Load existing data
-        final walletsJson = prefs.getString(_keyWallets);
-        if (walletsJson != null) {
-          final list = jsonDecode(walletsJson) as List<dynamic>;
-          _wallets = list.map((e) => Wallet.fromJson(e as Map<String, dynamic>)).toList();
-        } else {
-          _wallets = DummyData.sampleWallets;
-        }
-
-        final txJson = prefs.getString(_keyTransactions);
-        if (txJson != null) {
-          final list = jsonDecode(txJson) as List<dynamic>;
-          _transactions = list
-              .map((e) => TransactionModel.fromJson(e as Map<String, dynamic>))
-              .toList();
-          _transactions.sort((a, b) => b.date.compareTo(a.date));
-        } else {
-          _transactions = DummyData.sampleTransactions;
-        }
-
-        final debtsJson = prefs.getString(_keyDebts);
-        if (debtsJson != null) {
-          final list = jsonDecode(debtsJson) as List<dynamic>;
-          _debts = list.map((e) => DebtItem.fromJson(e as Map<String, dynamic>)).toList();
-        } else {
-          _debts = DummyData.sampleDebts;
-        }
-
-        final savingsJson = prefs.getString(_keySavings);
-        if (savingsJson != null) {
-          final list = jsonDecode(savingsJson) as List<dynamic>;
-          _savings =
-              list.map((e) => SavingsGoal.fromJson(e as Map<String, dynamic>)).toList();
-        } else {
-          _savings = DummyData.sampleSavings;
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error loading finance data: $e');
-      }
-      _wallets = DummyData.sampleWallets;
-      _transactions = DummyData.sampleTransactions;
-      _debts = DummyData.sampleDebts;
-      _savings = DummyData.sampleSavings;
+    if (!_hasLoaded && _loadError != null) {
+      _loadError = null; // "Coba Lagi" -> kembali ke spinner
+      notifyListeners();
     }
 
-    _isLoading = false;
+    try {
+      final results = await Future.wait<dynamic>([
+        _api.get('/wallets'),
+        _fetchAllTransactions(),
+        _api.get('/debts'),
+        _api.get('/savings'),
+      ]);
+      if (epoch != _epoch) return;
+
+      var wallets = _parseList((results[0] as ApiResponse).data, Wallet.fromJson);
+      if (!_hasLoaded && wallets.isEmpty) {
+        // Akun baru: buatkan satu dompet awal agar aplikasi langsung bisa dipakai
+        wallets = [await _createDefaultWallet()];
+        if (epoch != _epoch) return;
+      }
+
+      _wallets = wallets;
+      _transactions = results[1] as List<TransactionModel>;
+      _debts = _parseList((results[2] as ApiResponse).data, DebtItem.fromJson);
+      _savings = _parseList((results[3] as ApiResponse).data, SavingsGoal.fromJson);
+      _hasLoaded = true;
+      _loadError = null;
+    } catch (e) {
+      if (epoch != _epoch) return;
+      if (kDebugMode) debugPrint('[Finance] loadData gagal: $e');
+      if (!_hasLoaded) {
+        _loadError = e is ApiException ? e.message : 'Data dari server tidak dapat dibaca.';
+      }
+    }
+
+    if (epoch != _epoch) return;
     notifyListeners();
   }
 
-  Future<void> _saveAll() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-        _keyWallets, jsonEncode(_wallets.map((w) => w.toJson()).toList()));
-    await prefs.setString(
-        _keyTransactions, jsonEncode(_transactions.map((t) => t.toJson()).toList()));
-    await prefs.setString(
-        _keyDebts, jsonEncode(_debts.map((d) => d.toJson()).toList()));
-    await prefs.setString(
-        _keySavings, jsonEncode(_savings.map((s) => s.toJson()).toList()));
+  Future<List<TransactionModel>> _fetchAllTransactions() async {
+    final all = <TransactionModel>[];
+    var offset = 0;
+    while (true) {
+      final res = await _api.get(
+        '/transactions',
+        query: {'limit': '500', 'offset': '$offset'},
+      );
+      final page = _parseList(res.data, TransactionModel.fromJson);
+      all.addAll(page);
+      offset += page.length;
+      final total = (res.meta?['total'] as num?)?.toInt() ?? all.length;
+      if (page.isEmpty || offset >= total) break;
+    }
+    return all;
   }
 
-  // --- WALLET GETTERS & HELPERS ---
+  Future<Wallet> _createDefaultWallet() async {
+    final res = await _api.post(
+      '/wallets',
+      body: _walletBody(Wallet.defaultWallets.first, balance: 0),
+    );
+    return Wallet.fromJson(res.data as Map<String, dynamic>);
+  }
+
+  // ------------------------------------------------------------ helper
+
+  static List<T> _parseList<T>(dynamic data, T Function(Map<String, dynamic>) fromJson) {
+    return (data as List<dynamic>)
+        .map((e) => fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  // Nominal rupiah dikirim sebagai bilangan bulat; tanggal dikirim sebagai UTC.
+  static int _rupiah(double value) => value.round();
+  static String _utc(DateTime d) => d.toUtc().toIso8601String();
+
+  void _sortTransactions() => _transactions.sort((a, b) => b.date.compareTo(a.date));
+
+  /// Menimpa dompet lokal dengan data terbaru dari server (saldo sudah dihitung server).
+  void _mergeWallets(dynamic raw) {
+    if (raw is! List) return;
+    for (final item in raw) {
+      final w = Wallet.fromJson(item as Map<String, dynamic>);
+      final i = _wallets.indexWhere((x) => x.id == w.id);
+      if (i == -1) {
+        _wallets.add(w);
+      } else {
+        _wallets[i] = w;
+      }
+    }
+  }
+
+  void _upsertDebt(DebtItem d) {
+    final i = _debts.indexWhere((x) => x.id == d.id);
+    if (i == -1) {
+      _debts.insert(0, d);
+    } else {
+      _debts[i] = d;
+    }
+  }
+
+  void _upsertGoal(SavingsGoal g) {
+    final i = _savings.indexWhere((x) => x.id == g.id);
+    if (i == -1) {
+      _savings.insert(0, g);
+    } else {
+      _savings[i] = g;
+    }
+  }
+
+  Map<String, dynamic> _walletBody(Wallet w, {double? balance}) => {
+        'name': w.name,
+        'type': w.type.name,
+        'balance': _rupiah(balance ?? w.balance),
+        'iconCodePoint': w.icon.codePoint,
+        'iconFontFamily': w.icon.fontFamily ?? 'MaterialIcons',
+        'color': w.color.value,
+      };
+
+  Map<String, dynamic> _transactionBody(TransactionModel tx) => {
+        'title': tx.title,
+        'amount': _rupiah(tx.amount),
+        'type': tx.type.name,
+        'categoryId': tx.categoryId,
+        'walletId': tx.walletId,
+        'date': _utc(tx.date),
+        'note': tx.note,
+      };
+
+  // ------------------------------------------------------------ DOMPET
+
   Wallet? getWallet(String id) {
     try {
       return _wallets.firstWhere((w) => w.id == id);
@@ -129,24 +225,29 @@ class FinanceProvider extends ChangeNotifier {
   }
 
   Future<void> addWallet(Wallet wallet) async {
-    _wallets.add(wallet);
+    final res = await _api.post('/wallets', body: _walletBody(wallet));
+    _wallets.add(Wallet.fromJson(res.data as Map<String, dynamic>));
     notifyListeners();
-    await _saveAll();
   }
 
+  /// Hanya nama, jenis, ikon, dan warna yang bisa diubah. Saldo hanya berubah lewat transaksi.
   Future<void> updateWallet(Wallet wallet) async {
-    final index = _wallets.indexWhere((w) => w.id == wallet.id);
-    if (index != -1) {
-      _wallets[index] = wallet;
-      notifyListeners();
-      await _saveAll();
-    }
+    final res = await _api.patch('/wallets/${wallet.id}', body: {
+      'name': wallet.name,
+      'type': wallet.type.name,
+      'iconCodePoint': wallet.icon.codePoint,
+      'iconFontFamily': wallet.icon.fontFamily ?? 'MaterialIcons',
+      'color': wallet.color.value,
+    });
+    _mergeWallets([res.data]);
+    notifyListeners();
   }
 
+  /// Ditolak server (409) jika dompet masih punya transaksi / utang / tabungan terkait.
   Future<void> deleteWallet(String walletId) async {
+    await _api.delete('/wallets/$walletId');
     _wallets.removeWhere((w) => w.id == walletId);
     notifyListeners();
-    await _saveAll();
   }
 
   Future<void> transferWalletBalance({
@@ -155,115 +256,59 @@ class FinanceProvider extends ChangeNotifier {
     required double amount,
     String? note,
   }) async {
-    final from = getWallet(fromWalletId);
-    final to = getWallet(toWalletId);
-    if (from != null && to != null && amount > 0) {
-      from.balance -= amount;
-      to.balance += amount;
-
-      // Add a record in transactions for clarity
-      final now = DateTime.now();
-      _transactions.insert(
-        0,
-        TransactionModel(
-          id: _uuid.v4(),
-          title: 'Transfer: ${from.name} ➔ ${to.name}',
-          amount: amount,
-          type: TransactionType.expense,
-          categoryId: 'exp_other',
-          walletId: fromWalletId,
-          date: now,
-          note: note ?? 'Transfer saldo antar dompet',
-        ),
-      );
-      _transactions.insert(
-        0,
-        TransactionModel(
-          id: _uuid.v4(),
-          title: 'Terima Transfer dari ${from.name}',
-          amount: amount,
-          type: TransactionType.income,
-          categoryId: 'inc_other',
-          walletId: toWalletId,
-          date: now,
-          note: note ?? 'Transfer saldo antar dompet',
-        ),
-      );
-
-      notifyListeners();
-      await _saveAll();
-    }
+    final res = await _api.post('/wallets/transfer', body: {
+      'fromWalletId': fromWalletId,
+      'toWalletId': toWalletId,
+      'amount': _rupiah(amount),
+      if (note != null) 'note': note,
+    });
+    final data = res.data as Map<String, dynamic>;
+    _mergeWallets([data['fromWallet'], data['toWallet']]);
+    _transactions.addAll(_parseList(data['transactions'], TransactionModel.fromJson));
+    _sortTransactions();
+    notifyListeners();
   }
 
-  // --- TRANSACTIONS ---
+  // ------------------------------------------------------------ TRANSAKSI
+
   Future<void> addTransaction(TransactionModel tx) async {
-    _transactions.insert(0, tx);
-    _transactions.sort((a, b) => b.date.compareTo(a.date));
-
-    // Update wallet balance
-    final wallet = getWallet(tx.walletId);
-    if (wallet != null) {
-      if (tx.type == TransactionType.income) {
-        wallet.balance += tx.amount;
-      } else {
-        wallet.balance -= tx.amount;
-      }
-    }
-
+    final res = await _api.post('/transactions', body: _transactionBody(tx));
+    final data = res.data as Map<String, dynamic>;
+    _transactions.add(
+      TransactionModel.fromJson(data['transaction'] as Map<String, dynamic>),
+    );
+    _sortTransactions();
+    _mergeWallets(data['wallets']);
     notifyListeners();
-    await _saveAll();
   }
 
   Future<void> updateTransaction(TransactionModel oldTx, TransactionModel newTx) async {
-    final index = _transactions.indexWhere((t) => t.id == oldTx.id);
-    if (index != -1) {
-      // Revert old effect
-      final oldWallet = getWallet(oldTx.walletId);
-      if (oldWallet != null) {
-        if (oldTx.type == TransactionType.income) {
-          oldWallet.balance -= oldTx.amount;
-        } else {
-          oldWallet.balance += oldTx.amount;
-        }
-      }
-
-      // Apply new effect
-      final newWallet = getWallet(newTx.walletId);
-      if (newWallet != null) {
-        if (newTx.type == TransactionType.income) {
-          newWallet.balance += newTx.amount;
-        } else {
-          newWallet.balance -= newTx.amount;
-        }
-      }
-
-      _transactions[index] = newTx;
-      _transactions.sort((a, b) => b.date.compareTo(a.date));
-
-      notifyListeners();
-      await _saveAll();
+    final res = await _api.put('/transactions/${oldTx.id}', body: _transactionBody(newTx));
+    final data = res.data as Map<String, dynamic>;
+    final updated = TransactionModel.fromJson(data['transaction'] as Map<String, dynamic>);
+    final i = _transactions.indexWhere((t) => t.id == oldTx.id);
+    if (i == -1) {
+      _transactions.add(updated);
+    } else {
+      _transactions[i] = updated;
     }
+    _sortTransactions();
+    _mergeWallets(data['wallets']);
+    notifyListeners();
   }
 
+  /// Menghapus salah satu sisi transfer juga menghapus pasangannya (server yang menentukan).
   Future<void> deleteTransaction(String id) async {
-    final index = _transactions.indexWhere((t) => t.id == id);
-    if (index != -1) {
-      final tx = _transactions[index];
-      final wallet = getWallet(tx.walletId);
-      if (wallet != null) {
-        if (tx.type == TransactionType.income) {
-          wallet.balance -= tx.amount;
-        } else {
-          wallet.balance += tx.amount;
-        }
-      }
-      _transactions.removeAt(index);
-      notifyListeners();
-      await _saveAll();
-    }
+    final res = await _api.delete('/transactions/$id');
+    final data = res.data as Map<String, dynamic>;
+    final deleted = (data['deletedIds'] as List<dynamic>).cast<String>().toSet();
+    _transactions.removeWhere((t) => deleted.contains(t.id));
+    _mergeWallets(data['wallets']);
+    notifyListeners();
   }
 
-  // --- DEBTS (UTANG & PIUTANG) ---
+  // ------------------------------------------------------------ UTANG & PIUTANG
+
   double get totalDebt {
     return _debts
         .where((d) => d.type == DebtType.debt)
@@ -277,88 +322,59 @@ class FinanceProvider extends ChangeNotifier {
   }
 
   Future<void> addDebt(DebtItem debt) async {
-    _debts.insert(0, debt);
+    final res = await _api.post('/debts', body: {
+      'personName': debt.personName,
+      'type': debt.type.name,
+      'amount': _rupiah(debt.amount),
+      'paidAmount': _rupiah(debt.paidAmount),
+      'dueDate': debt.dueDate == null ? null : _utc(debt.dueDate!),
+      'notes': debt.notes,
+    });
+    _upsertDebt(DebtItem.fromJson(res.data as Map<String, dynamic>));
     notifyListeners();
-    await _saveAll();
   }
 
   Future<void> updateDebt(DebtItem debt) async {
-    final index = _debts.indexWhere((d) => d.id == debt.id);
-    if (index != -1) {
-      _debts[index] = debt;
-      notifyListeners();
-      await _saveAll();
-    }
+    final res = await _api.patch('/debts/${debt.id}', body: {
+      'personName': debt.personName,
+      'amount': _rupiah(debt.amount),
+      'dueDate': debt.dueDate == null ? null : _utc(debt.dueDate!),
+      'notes': debt.notes,
+    });
+    _upsertDebt(DebtItem.fromJson(res.data as Map<String, dynamic>));
+    notifyListeners();
   }
 
   Future<void> deleteDebt(String id) async {
+    await _api.delete('/debts/$id');
     _debts.removeWhere((d) => d.id == id);
     notifyListeners();
-    await _saveAll();
   }
 
+  /// Ditolak server (422) jika nominal melebihi sisa utang/piutang.
   Future<void> payDebt({
     required String debtId,
     required double amount,
     required String walletId,
     String? notes,
   }) async {
-    final index = _debts.indexWhere((d) => d.id == debtId);
-    if (index == -1 || amount <= 0) return;
-
-    final debt = _debts[index];
-    debt.paidAmount += amount;
-
-    final payment = DebtPayment(
-      id: _uuid.v4(),
-      amount: amount,
-      date: DateTime.now(),
-      walletId: walletId,
-      notes: notes,
+    final res = await _api.post('/debts/$debtId/payments', body: {
+      'amount': _rupiah(amount),
+      'walletId': walletId,
+      'notes': notes,
+    });
+    final data = res.data as Map<String, dynamic>;
+    _upsertDebt(DebtItem.fromJson(data['debt'] as Map<String, dynamic>));
+    _transactions.add(
+      TransactionModel.fromJson(data['transaction'] as Map<String, dynamic>),
     );
-    debt.payments.insert(0, payment);
-
-    // Sync with wallet and create transaction
-    final wallet = getWallet(walletId);
-    if (debt.type == DebtType.debt) {
-      // Utang: saya membayar hutang, uang dompet keluar
-      if (wallet != null) wallet.balance -= amount;
-      _transactions.insert(
-        0,
-        TransactionModel(
-          id: _uuid.v4(),
-          title: 'Bayar Utang: ${debt.personName}',
-          amount: amount,
-          type: TransactionType.expense,
-          categoryId: 'exp_other',
-          walletId: walletId,
-          date: DateTime.now(),
-          note: notes ?? 'Pembayaran cicilan / pelunasan utang',
-        ),
-      );
-    } else {
-      // Piutang: orang membayar ke saya, uang dompet bertambah
-      if (wallet != null) wallet.balance += amount;
-      _transactions.insert(
-        0,
-        TransactionModel(
-          id: _uuid.v4(),
-          title: 'Terima Piutang: ${debt.personName}',
-          amount: amount,
-          type: TransactionType.income,
-          categoryId: 'inc_other',
-          walletId: walletId,
-          date: DateTime.now(),
-          note: notes ?? 'Penerimaan pembayaran piutang',
-        ),
-      );
-    }
-
+    _sortTransactions();
+    _mergeWallets(data['wallets']);
     notifyListeners();
-    await _saveAll();
   }
 
-  // --- SAVINGS GOALS (TABUNGAN & IMPIAN) ---
+  // ------------------------------------------------------------ TABUNGAN & IMPIAN
+
   double get totalSavedInGoals {
     return _savings.fold(0.0, (sum, s) => sum + s.currentAmount);
   }
@@ -367,25 +383,41 @@ class FinanceProvider extends ChangeNotifier {
     return _savings.fold(0.0, (sum, s) => sum + s.targetAmount);
   }
 
-  Future<void> addSavingsGoal(SavingsGoal goal) async {
-    _savings.insert(0, goal);
+  /// Mengembalikan target yang tersimpan (dengan ID dari server).
+  Future<SavingsGoal> addSavingsGoal(SavingsGoal goal) async {
+    final res = await _api.post('/savings', body: {
+      'title': goal.title,
+      'targetAmount': _rupiah(goal.targetAmount),
+      'targetDate': goal.targetDate == null ? null : _utc(goal.targetDate!),
+      'iconCodePoint': goal.icon.codePoint,
+      'iconFontFamily': goal.icon.fontFamily ?? 'MaterialIcons',
+      'color': goal.color.value,
+      'notes': goal.notes,
+    });
+    final created = SavingsGoal.fromJson(res.data as Map<String, dynamic>);
+    _upsertGoal(created);
     notifyListeners();
-    await _saveAll();
+    return created;
   }
 
   Future<void> updateSavingsGoal(SavingsGoal goal) async {
-    final index = _savings.indexWhere((s) => s.id == goal.id);
-    if (index != -1) {
-      _savings[index] = goal;
-      notifyListeners();
-      await _saveAll();
-    }
+    final res = await _api.patch('/savings/${goal.id}', body: {
+      'title': goal.title,
+      'targetAmount': _rupiah(goal.targetAmount),
+      'targetDate': goal.targetDate == null ? null : _utc(goal.targetDate!),
+      'iconCodePoint': goal.icon.codePoint,
+      'iconFontFamily': goal.icon.fontFamily ?? 'MaterialIcons',
+      'color': goal.color.value,
+      'notes': goal.notes,
+    });
+    _upsertGoal(SavingsGoal.fromJson(res.data as Map<String, dynamic>));
+    notifyListeners();
   }
 
   Future<void> deleteSavingsGoal(String id) async {
+    await _api.delete('/savings/$id');
     _savings.removeWhere((s) => s.id == id);
     notifyListeners();
-    await _saveAll();
   }
 
   Future<void> depositToSavings({
@@ -393,91 +425,42 @@ class FinanceProvider extends ChangeNotifier {
     required double amount,
     required String walletId,
     String? notes,
-  }) async {
-    final index = _savings.indexWhere((s) => s.id == goalId);
-    if (index == -1 || amount <= 0) return;
+  }) =>
+      _moveSavings('deposit', goalId, amount, walletId, notes);
 
-    final goal = _savings[index];
-    goal.currentAmount += amount;
-
-    final log = SavingsLog(
-      id: _uuid.v4(),
-      amount: amount,
-      date: DateTime.now(),
-      type: SavingsLogType.deposit,
-      walletId: walletId,
-      notes: notes,
-    );
-    goal.logs.insert(0, log);
-
-    // Deduct from wallet and record transaction
-    final wallet = getWallet(walletId);
-    if (wallet != null) wallet.balance -= amount;
-
-    _transactions.insert(
-      0,
-      TransactionModel(
-        id: _uuid.v4(),
-        title: 'Setor Tabungan: ${goal.title}',
-        amount: amount,
-        type: TransactionType.expense,
-        categoryId: 'exp_other',
-        walletId: walletId,
-        date: DateTime.now(),
-        note: notes ?? 'Menabung ke impian "${goal.title}"',
-      ),
-    );
-
-    notifyListeners();
-    await _saveAll();
-  }
-
+  /// Jika nominal melebihi saldo tabungan, server membatasi sebesar saldo tabungan.
   Future<void> withdrawFromSavings({
     required String goalId,
     required double amount,
     required String walletId,
     String? notes,
-  }) async {
-    final index = _savings.indexWhere((s) => s.id == goalId);
-    if (index == -1 || amount <= 0) return;
+  }) =>
+      _moveSavings('withdraw', goalId, amount, walletId, notes);
 
-    final goal = _savings[index];
-    final actualAmount = amount > goal.currentAmount ? goal.currentAmount : amount;
-    goal.currentAmount -= actualAmount;
-
-    final log = SavingsLog(
-      id: _uuid.v4(),
-      amount: actualAmount,
-      date: DateTime.now(),
-      type: SavingsLogType.withdraw,
-      walletId: walletId,
-      notes: notes,
+  Future<void> _moveSavings(
+    String kind,
+    String goalId,
+    double amount,
+    String walletId,
+    String? notes,
+  ) async {
+    final res = await _api.post('/savings/$goalId/$kind', body: {
+      'amount': _rupiah(amount),
+      'walletId': walletId,
+      'notes': notes,
+    });
+    final data = res.data as Map<String, dynamic>;
+    _upsertGoal(SavingsGoal.fromJson(data['goal'] as Map<String, dynamic>));
+    _transactions.add(
+      TransactionModel.fromJson(data['transaction'] as Map<String, dynamic>),
     );
-    goal.logs.insert(0, log);
-
-    // Return money to wallet and record income transaction
-    final wallet = getWallet(walletId);
-    if (wallet != null) wallet.balance += actualAmount;
-
-    _transactions.insert(
-      0,
-      TransactionModel(
-        id: _uuid.v4(),
-        title: 'Tarik Tabungan: ${goal.title}',
-        amount: actualAmount,
-        type: TransactionType.income,
-        categoryId: 'inc_other',
-        walletId: walletId,
-        date: DateTime.now(),
-        note: notes ?? 'Penarikan dari tabungan "${goal.title}"',
-      ),
-    );
-
+    _sortTransactions();
+    _mergeWallets(data['wallets']);
     notifyListeners();
-    await _saveAll();
   }
 
-  // --- ANALYTICS & SUMMARIES ---
+  // ------------------------------------------------------------ ANALITIK & RINGKASAN
+
   double get totalIncomeThisMonth {
     final now = DateTime.now();
     final startOfMonth = DateTime(now.year, now.month, 1);
@@ -528,14 +511,5 @@ class FinanceProvider extends ChangeNotifier {
       map[tx.categoryId] = (map[tx.categoryId] ?? 0.0) + tx.amount;
     }
     return map;
-  }
-
-  Future<void> resetAllData() async {
-    _wallets = DummyData.sampleWallets;
-    _transactions = DummyData.sampleTransactions;
-    _debts = DummyData.sampleDebts;
-    _savings = DummyData.sampleSavings;
-    await _saveAll();
-    notifyListeners();
   }
 }

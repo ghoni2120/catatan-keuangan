@@ -5,6 +5,8 @@ import 'package:uuid/uuid.dart';
 
 import '../models/savings_goal.dart';
 import '../providers/finance_provider.dart';
+import '../services/api_exception.dart';
+import '../utils/api_action.dart';
 import '../utils/date_formatter.dart';
 
 class AddSavingsScreen extends StatefulWidget {
@@ -90,7 +92,7 @@ class _AddSavingsScreenState extends State<AddSavingsScreen> {
     }
   }
 
-  void _saveGoal() {
+  Future<void> _saveGoal() async {
     if (!_formKey.currentState!.validate()) return;
 
     final targetAmount = double.tryParse(_targetAmountController.text.trim()) ?? 0;
@@ -104,6 +106,7 @@ class _AddSavingsScreenState extends State<AddSavingsScreen> {
     final initialDeposit = double.tryParse(_initialDepositController.text.trim()) ?? 0;
     final provider = Provider.of<FinanceProvider>(context, listen: false);
 
+    bool ok;
     if (widget.goalToEdit != null) {
       final updated = widget.goalToEdit!.copyWith(
         title: _titleController.text.trim(),
@@ -113,7 +116,7 @@ class _AddSavingsScreenState extends State<AddSavingsScreen> {
         color: _selectedColor,
         notes: _noteController.text.trim().isEmpty ? null : _noteController.text.trim(),
       );
-      provider.updateSavingsGoal(updated);
+      ok = await runApi(context, () => provider.updateSavingsGoal(updated));
     } else {
       final goalId = const Uuid().v4();
       final newGoal = SavingsGoal(
@@ -127,20 +130,34 @@ class _AddSavingsScreenState extends State<AddSavingsScreen> {
         color: _selectedColor,
         notes: _noteController.text.trim().isEmpty ? null : _noteController.text.trim(),
       );
-      provider.addSavingsGoal(newGoal);
+      var goalCreated = false;
+      final walletId = _selectedWalletId;
+      ok = await runApi(context, () async {
+        final created = await provider.addSavingsGoal(newGoal);
+        goalCreated = true;
 
-      // If initial deposit specified
-      if (initialDeposit > 0 && _selectedWalletId != null) {
-        provider.depositToSavings(
-          goalId: goalId,
-          amount: initialDeposit,
-          walletId: _selectedWalletId!,
-          notes: 'Setoran awal tabungan',
-        );
-      }
+        // Setoran awal (jika diisi)
+        if (initialDeposit > 0 && walletId != null) {
+          try {
+            await provider.depositToSavings(
+              goalId: created.id,
+              amount: initialDeposit,
+              walletId: walletId,
+              notes: 'Setoran awal tabungan',
+            );
+          } on ApiException catch (e) {
+            throw ApiException(
+              statusCode: e.statusCode,
+              message: 'Target tabungan sudah dibuat, tetapi setoran awal gagal: ${e.message}',
+            );
+          }
+        }
+      });
+      // Jika target sudah terbuat di server, jangan biarkan pengguna menyimpan ulang (akan ganda)
+      if (goalCreated) ok = true;
     }
 
-    Navigator.pop(context);
+    if (ok && mounted) Navigator.pop(context);
   }
 
   @override

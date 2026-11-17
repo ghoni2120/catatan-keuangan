@@ -27,7 +27,7 @@ class DebtPayment {
     return DebtPayment(
       id: json['id'] as String,
       amount: (json['amount'] as num).toDouble(),
-      date: DateTime.parse(json['date'] as String),
+      date: DateTime.parse(json['date'] as String).toLocal(),
       walletId: json['walletId'] as String,
       notes: json['notes'] as String?,
     );
@@ -93,9 +93,9 @@ class DebtItem {
       amount: (json['amount'] as num).toDouble(),
       paidAmount: (json['paidAmount'] as num?)?.toDouble() ?? 0.0,
       dueDate: json['dueDate'] != null
-          ? DateTime.parse(json['dueDate'] as String)
+          ? DateTime.parse(json['dueDate'] as String).toLocal()
           : null,
-      createdAt: DateTime.parse(json['createdAt'] as String),
+      createdAt: DateTime.parse(json['createdAt'] as String).toLocal(),
       notes: json['notes'] as String?,
       payments: paymentsList,
     );
