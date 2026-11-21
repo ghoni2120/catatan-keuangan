@@ -7,6 +7,7 @@ import '../providers/finance_provider.dart';
 import '../utils/api_action.dart';
 import '../utils/currency_formatter.dart';
 import '../utils/date_formatter.dart';
+import '../widgets/manage_dialogs.dart';
 import '../widgets/debt_item_card.dart';
 import 'add_debt_screen.dart';
 
@@ -212,33 +213,26 @@ class _DebtScreenState extends State<DebtScreen>
                   debt.personName,
                   style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.red),
-                  onPressed: () async {
-                    final confirm = await showDialog<bool>(
-                      context: context,
-                      builder: (c) => AlertDialog(
-                        title: const Text('Hapus Catatan Ini?'),
-                        content: const Text('Catatan utang/piutang ini akan dihapus permanen.'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(c, false),
-                            child: const Text('Batal'),
-                          ),
-                          FilledButton(
-                            onPressed: () => Navigator.pop(c, true),
-                            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-                            child: const Text('Hapus'),
-                          ),
-                        ],
-                      ),
-                    );
-                    if (confirm == true) {
-                      if (!context.mounted) return;
-                      final ok = await runApi(context, () => provider.deleteDebt(debt.id));
-                      if (ok && ctx.mounted) Navigator.pop(ctx);
-                    }
-                  },
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.edit_outlined),
+                      tooltip: 'Ubah',
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        showEditDebtDialog(context, debt);
+                      },
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      tooltip: 'Hapus',
+                      onPressed: () async {
+                        final deleted = await confirmDeleteDebt(context, debt);
+                        if (deleted && ctx.mounted) Navigator.pop(ctx);
+                      },
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -314,6 +308,14 @@ class _DebtScreenState extends State<DebtScreen>
                     '${DateFormatter.formatDate(p.date)} via ${wallet?.name ?? 'Dompet'}${p.notes != null ? ' • ${p.notes}' : ''}',
                     style: const TextStyle(fontSize: 12),
                   ),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.undo, size: 20),
+                    tooltip: 'Batalkan pembayaran',
+                    onPressed: () async {
+                      final done = await confirmCancelDebtPayment(context, debt, p);
+                      if (done && ctx.mounted) Navigator.pop(ctx);
+                    },
+                  ),
                 );
               }),
             const SizedBox(height: 20),
@@ -329,6 +331,20 @@ class _DebtScreenState extends State<DebtScreen>
                 ),
                 icon: const Icon(Icons.payment),
                 label: Text(isDebt ? 'Bayar Cicilan Utang' : 'Catat Pelunasan Piutang'),
+              ),
+            if (debt.isPaidOff)
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final deleted = await confirmDeleteDebt(context, debt);
+                  if (deleted && ctx.mounted) Navigator.pop(ctx);
+                },
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                icon: const Icon(Icons.task_alt),
+                label: Text(
+                  isDebt ? 'Utang Lunas - Hapus dari Daftar' : 'Piutang Lunas - Hapus dari Daftar',
+                ),
               ),
           ],
         ),

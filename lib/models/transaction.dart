@@ -10,6 +10,9 @@ class TransactionModel {
   final DateTime date;
   final String? note;
 
+  /// Asal transaksi: manual | transfer | debt_payment | savings
+  final String source;
+
   TransactionModel({
     required this.id,
     required this.title,
@@ -19,7 +22,28 @@ class TransactionModel {
     required this.walletId,
     required this.date,
     this.note,
+    this.source = 'manual',
   });
+
+  /// Hanya transaksi manual yang boleh diubah langsung.
+  bool get canEdit => source == 'manual';
+
+  /// Transfer boleh dihapus (pasangannya ikut terhapus). Transaksi dari pembayaran utang
+  /// atau tabungan dibatalkan lewat fitur terkait.
+  bool get canDelete => source == 'manual' || source == 'transfer';
+
+  String? get sourceHint {
+    switch (source) {
+      case 'transfer':
+        return 'Transaksi ini bagian dari transfer antar dompet. Menghapusnya juga menghapus pasangannya dan mengembalikan kedua saldo.';
+      case 'debt_payment':
+        return 'Transaksi ini berasal dari pembayaran utang/piutang. Untuk membatalkannya, buka menu Utang lalu batalkan pembayarannya.';
+      case 'savings':
+        return 'Transaksi ini berasal dari setoran/penarikan tabungan. Untuk membatalkannya, buka menu Tabungan lalu batalkan riwayatnya.';
+      default:
+        return null;
+    }
+  }
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -44,6 +68,7 @@ class TransactionModel {
       walletId: json['walletId'] as String,
       date: DateTime.parse(json['date'] as String).toLocal(),
       note: json['note'] as String?,
+      source: (json['source'] as String?) ?? 'manual',
     );
   }
 
@@ -66,6 +91,7 @@ class TransactionModel {
       walletId: walletId ?? this.walletId,
       date: date ?? this.date,
       note: note ?? this.note,
+      source: source,
     );
   }
 }

@@ -7,6 +7,7 @@ import '../models/wallet.dart';
 import '../providers/finance_provider.dart';
 import '../utils/api_action.dart';
 import '../utils/currency_formatter.dart';
+import '../widgets/manage_dialogs.dart';
 
 class WalletsScreen extends StatelessWidget {
   const WalletsScreen({super.key});
@@ -517,6 +518,51 @@ class WalletsScreen extends StatelessWidget {
                               ),
                             ),
                           ],
+                        ),
+                      ],
+                    ),
+                    PopupMenuButton<String>(
+                      icon: const Icon(Icons.more_vert, size: 20),
+                      tooltip: 'Kelola dompet',
+                      onSelected: (action) {
+                        if (action == 'edit') {
+                          showEditWalletDialog(context, wallet);
+                        } else if (action == 'adjust') {
+                          showAdjustBalanceDialog(context, wallet);
+                        } else if (action == 'delete') {
+                          confirmDeleteWallet(context, wallet);
+                        }
+                      },
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(
+                          value: 'edit',
+                          child: Row(
+                            children: [
+                              Icon(Icons.edit_outlined, size: 20),
+                              SizedBox(width: 10),
+                              Text('Ubah Dompet'),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'adjust',
+                          child: Row(
+                            children: [
+                              Icon(Icons.tune, size: 20),
+                              SizedBox(width: 10),
+                              Text('Koreksi Saldo'),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'delete',
+                          child: Row(
+                            children: [
+                              Icon(Icons.delete_outline, size: 20, color: Colors.red),
+                              SizedBox(width: 10),
+                              Text('Hapus Dompet'),
+                            ],
+                          ),
                         ),
                       ],
                     ),

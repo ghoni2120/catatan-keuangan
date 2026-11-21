@@ -173,6 +173,12 @@ class FinanceProvider extends ChangeNotifier {
     }
   }
 
+  void _removeTransactions(dynamic ids) {
+    if (ids is! List || ids.isEmpty) return;
+    final gone = ids.cast<String>().toSet();
+    _transactions.removeWhere((t) => gone.contains(t.id));
+  }
+
   void _upsertDebt(DebtItem d) {
     final i = _debts.indexWhere((x) => x.id == d.id);
     if (i == -1) {
@@ -243,10 +249,34 @@ class FinanceProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Ditolak server (409) jika dompet masih punya transaksi / utang / tabungan terkait.
-  Future<void> deleteWallet(String walletId) async {
-    await _api.delete('/wallets/$walletId');
+  /// Jumlah catatan yang memakai dompet ini (transaksi + pembayaran utang + riwayat tabungan).
+  int walletUsageCount(String walletId) {
+    var n = _transactions.where((t) => t.walletId == walletId).length;
+    for (final d in _debts) {
+      n += d.payments.where((p) => p.walletId == walletId).length;
+    }
+    for (final g in _savings) {
+      n += g.logs.where((l) => l.walletId == walletId).length;
+    }
+    return n;
+  }
+
+  /// Tanpa [moveToWalletId]: ditolak server (409) jika dompet masih punya riwayat.
+  /// Dengan [moveToWalletId]: seluruh riwayat dan saldo dompet dipindahkan ke dompet tujuan,
+  /// lalu dompet dihapus.
+  Future<void> deleteWallet(String walletId, {String? moveToWalletId}) async {
+    final res = await _api.delete(
+      '/wallets/$walletId',
+      query: moveToWalletId == null ? null : {'moveToWalletId': moveToWalletId},
+    );
     _wallets.removeWhere((w) => w.id == walletId);
+    if (moveToWalletId != null) {
+      _mergeWallets((res.data as Map<String, dynamic>)['wallets']);
+      notifyListeners();
+      // Riwayat berpindah dompet di server: muat ulang agar seluruh data lokal konsisten
+      await loadData();
+      return;
+    }
     notifyListeners();
   }
 
@@ -345,9 +375,27 @@ class FinanceProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> deleteDebt(String id) async {
-    await _api.delete('/debts/$id');
+  /// Default: uang yang sudah bergerak tetap (transaksi pembayaran menjadi transaksi biasa).
+  /// Dengan [revertPayments]: semua pembayaran dibatalkan dulu (saldo dompet dikembalikan).
+  Future<void> deleteDebt(String id, {bool revertPayments = false}) async {
+    final res = await _api.delete(
+      '/debts/$id',
+      query: revertPayments ? {'revertPayments': 'true'} : null,
+    );
+    final data = res.data as Map<String, dynamic>;
     _debts.removeWhere((d) => d.id == id);
+    _removeTransactions(data['deletedTransactionIds']);
+    _mergeWallets(data['wallets']);
+    notifyListeners();
+  }
+
+  /// Membatalkan satu pembayaran: saldo dompet dikembalikan dan transaksinya dihapus.
+  Future<void> cancelDebtPayment(String debtId, String paymentId) async {
+    final res = await _api.delete('/debts/$debtId/payments/$paymentId');
+    final data = res.data as Map<String, dynamic>;
+    _upsertDebt(DebtItem.fromJson(data['debt'] as Map<String, dynamic>));
+    _removeTransactions(data['deletedTransactionIds']);
+    _mergeWallets(data['wallets']);
     notifyListeners();
   }
 
@@ -414,9 +462,31 @@ class FinanceProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> deleteSavingsGoal(String id) async {
-    await _api.delete('/savings/$id');
+  /// Default: dana yang masih tersimpan tidak dikembalikan (cocok untuk target tercapai).
+  /// Dengan [refundWalletId]: sisa dana dikembalikan ke dompet itu (target dibatalkan).
+  Future<void> deleteSavingsGoal(String id, {String? refundWalletId}) async {
+    final res = await _api.delete(
+      '/savings/$id',
+      query: refundWalletId == null ? null : {'refundWalletId': refundWalletId},
+    );
+    final data = res.data as Map<String, dynamic>;
     _savings.removeWhere((s) => s.id == id);
+    _mergeWallets(data['wallets']);
+    final refund = data['transaction'];
+    if (refund != null) {
+      _transactions.add(TransactionModel.fromJson(refund as Map<String, dynamic>));
+      _sortTransactions();
+    }
+    notifyListeners();
+  }
+
+  /// Membatalkan satu setoran/penarikan: saldo dompet & tabungan dikembalikan.
+  Future<void> cancelSavingsLog(String goalId, String logId) async {
+    final res = await _api.delete('/savings/$goalId/logs/$logId');
+    final data = res.data as Map<String, dynamic>;
+    _upsertGoal(SavingsGoal.fromJson(data['goal'] as Map<String, dynamic>));
+    _removeTransactions(data['deletedTransactionIds']);
+    _mergeWallets(data['wallets']);
     notifyListeners();
   }
 

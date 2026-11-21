@@ -469,8 +469,9 @@ class HomeScreen extends StatelessWidget {
                   transaction: tx,
                   wallet: wallet,
                   onTap: () => onNavigateTab(1),
-                  onDelete: () =>
-                      runApi(context, () => provider.deleteTransaction(tx.id)),
+                  onDelete: tx.canDelete
+                      ? () => runApi(context, () => provider.deleteTransaction(tx.id))
+                      : null,
                 );
               }),
 

@@ -59,7 +59,8 @@ class ApiClient {
 
   Future<ApiResponse> patch(String path, {Object? body}) => _send('PATCH', path, body: body);
 
-  Future<ApiResponse> delete(String path) => _send('DELETE', path);
+  Future<ApiResponse> delete(String path, {Map<String, String>? query}) =>
+      _send('DELETE', path, query: query);
 
   // ------------------------------------------------------------ internal
 

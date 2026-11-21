@@ -6,6 +6,7 @@ import '../models/savings_goal.dart';
 import '../providers/finance_provider.dart';
 import '../utils/api_action.dart';
 import '../utils/currency_formatter.dart';
+import '../widgets/manage_dialogs.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/savings_item_card.dart';
 import 'add_savings_screen.dart';
@@ -384,30 +385,10 @@ class SavingsScreen extends StatelessWidget {
                 ),
                 IconButton(
                   icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  tooltip: 'Hapus',
                   onPressed: () async {
-                    final confirm = await showDialog<bool>(
-                      context: context,
-                      builder: (c) => AlertDialog(
-                        title: const Text('Hapus Target Tabungan?'),
-                        content: Text('Yakin ingin menghapus "${goal.title}"?'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(c, false),
-                            child: const Text('Batal'),
-                          ),
-                          FilledButton(
-                            onPressed: () => Navigator.pop(c, true),
-                            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-                            child: const Text('Hapus'),
-                          ),
-                        ],
-                      ),
-                    );
-                    if (confirm == true) {
-                      if (!context.mounted) return;
-                      final ok = await runApi(context, () => provider.deleteSavingsGoal(goal.id));
-                      if (ok && ctx.mounted) Navigator.pop(ctx);
-                    }
+                    final deleted = await confirmDeleteGoal(context, goal);
+                    if (deleted && ctx.mounted) Navigator.pop(ctx);
                   },
                 ),
               ],
@@ -486,6 +467,14 @@ class SavingsScreen extends StatelessWidget {
                     '${isDeposit ? 'Setor' : 'Tarik'} • ${DateFormatter.formatDate(log.date)} via ${wallet?.name ?? 'Dompet'}${log.notes != null ? ' (${log.notes})' : ''}',
                     style: const TextStyle(fontSize: 12),
                   ),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.undo, size: 20),
+                    tooltip: 'Batalkan',
+                    onPressed: () async {
+                      final done = await confirmCancelSavingsLog(context, goal, log);
+                      if (done && ctx.mounted) Navigator.pop(ctx);
+                    },
+                  ),
                 );
               }),
             const SizedBox(height: 24),
@@ -523,6 +512,20 @@ class SavingsScreen extends StatelessWidget {
                 ),
               ],
             ),
+            if (goal.isCompleted) ...[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final deleted = await confirmDeleteGoal(context, goal);
+                  if (deleted && ctx.mounted) Navigator.pop(ctx);
+                },
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                icon: const Icon(Icons.task_alt),
+                label: const Text('Target Tercapai - Selesaikan & Hapus'),
+              ),
+            ],
           ],
         ),
       ),

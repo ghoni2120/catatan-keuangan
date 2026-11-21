@@ -275,8 +275,9 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                         onTap: () {
                           _showTransactionDetails(context, tx, wallet, provider);
                         },
-                        onDelete: () =>
-                            runApi(context, () => provider.deleteTransaction(tx.id)),
+                        onDelete: tx.canDelete
+                            ? () => runApi(context, () => provider.deleteTransaction(tx.id))
+                            : null,
                       );
                     },
                   ),
@@ -358,44 +359,69 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
               _detailRow('Catatan', tx.note!, theme),
             ],
             const SizedBox(height: 24),
+            if (tx.sourceHint != null)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.info_outline, size: 18, color: theme.colorScheme.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        tx.sourceHint!,
+                        style: TextStyle(fontSize: 12, color: theme.hintColor),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             Row(
               children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(ctx);
-                      runApi(context, () => provider.deleteTransaction(tx.id));
-                    },
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.red,
-                      side: const BorderSide(color: Colors.red),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
+                if (tx.canDelete)
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        runApi(context, () => provider.deleteTransaction(tx.id));
+                      },
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red,
+                        side: const BorderSide(color: Colors.red),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      icon: const Icon(Icons.delete_outline),
+                      label: const Text('Hapus'),
                     ),
-                    icon: const Icon(Icons.delete_outline),
-                    label: const Text('Hapus'),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: () {
-                      Navigator.pop(ctx);
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => AddEditTransactionScreen(
-                            transactionToEdit: tx,
+                if (tx.canDelete && tx.canEdit) const SizedBox(width: 12),
+                if (tx.canEdit)
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => AddEditTransactionScreen(
+                              transactionToEdit: tx,
+                            ),
                           ),
-                        ),
-                      );
-                    },
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
+                        );
+                      },
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      icon: const Icon(Icons.edit),
+                      label: const Text('Ubah'),
                     ),
-                    icon: const Icon(Icons.edit),
-                    label: const Text('Ubah'),
                   ),
-                ),
               ],
             ),
           ],
